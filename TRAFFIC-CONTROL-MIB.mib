@@ -1,0 +1,344 @@
+TRAFFIC-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+--
+-- MIB objects for traffic control system
+--
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE,
+    Integer32, experimental               FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION, DisplayString     FROM SNMPv2-TC
+    OBJECT-GROUP, MODULE-COMPLIANCE       FROM SNMPv2-CONF;
+
+-- MODULE IDENTITY: trafficControlMIB
+
+trafficControlMIB MODULE-IDENTITY
+    LAST-UPDATED "202603200000Z"
+    ORGANIZATION "University of Minho"
+    CONTACT-INFO 
+    "postal:   Campus de Gualtar
+                4710-057 BRAGA
+                Portugal"
+    DESCRIPTION
+    "MIB objects for traffic control system."
+    REVISION     "202603200000Z"
+    DESCRIPTION
+    "Traffic Control MIB: model with Roads table and RoadConnections join table."
+    ::= { experimental 2026 }
+
+
+-- ==========================================================
+-- TEXTUAL CONVENTIONS
+-- ==========================================================
+
+TrafficLightColorType ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "Traffic signal state: red(stop) or green(proceed)."
+    SYNTAX INTEGER {
+        red(1),
+        green(2)
+    }
+
+
+-- ==========================================================
+-- MAIN OBJECT TREE STRUCTURE
+-- ==========================================================
+
+trafficControlObjects OBJECT IDENTIFIER ::= { trafficControlMIB 1 }
+trafficControlConformance OBJECT IDENTIFIER ::= { trafficControlMIB 2 }
+
+-- Scalar Configuration Objects
+simConfig OBJECT IDENTIFIER ::= { trafficControlObjects 1 }
+systemInfo OBJECT IDENTIFIER ::= { trafficControlObjects 2 }
+
+-- Table Objects
+trafficTables OBJECT IDENTIFIER ::= { trafficControlObjects 3 }
+
+
+-- ==========================================================
+-- SCALAR OBJECTS - System Configuration
+-- ==========================================================
+
+simulationStepTime OBJECT-TYPE
+    SYNTAX Integer32 (1..3600)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Time interval for each simulation cycle in seconds."
+    ::= { simConfig 1 }
+
+defaultCrossTrafficRate OBJECT-TYPE
+    SYNTAX Integer32 (0..100)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Default traffic crossing rate at traffic lights in
+                 vehicles per minute. Used as baseline for road configuration."
+    ::= { simConfig 2 }
+
+systemStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        stopped(1),
+        running(2),
+        paused(3)
+    }
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Current operational status of the traffic control system.
+                 stopped(1): system is stopped and reset
+                 running(2): system simulation is running
+                 paused(3): system is paused (can resume)"
+    ::= { systemInfo 1 }
+
+simElapsedTime OBJECT-TYPE
+    SYNTAX Integer32 (0..6000)
+    UNITS "seconds"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Total elapsed time of the simulation in seconds.
+                 Incremented by simulationStepTime at each simulation cycle.
+                 Reset to 0 when systemStatus changes to stopped(1).
+                "
+    ::= { systemInfo 2 }
+
+totalVehiclesEntered OBJECT-TYPE
+    SYNTAX Integer32 (0..500)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Cumulative count of all vehicles that have entered the
+                 system since last reset."
+    ::= { systemInfo 3 }
+
+totalVehiclesExited OBJECT-TYPE
+    SYNTAX Integer32 (0..500)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Cumulative count of all vehicles that have exited the
+                 system since last reset. Reset to 0 when systemStatus changes to stopped(1)."
+    ::= { systemInfo 4 }
+
+currentVehiclesInSystem OBJECT-TYPE
+    SYNTAX Integer32 (0..3000)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Current total number of vehicles present in the system
+                 at this moment."
+    ::= { systemInfo 5 }
+
+
+-- ==========================================================
+-- ROADS TABLE
+-- ============================================================
+
+roadsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF RoadsEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Table containing information about all roads in the network."
+    ::= { trafficTables 1 }
+
+roadsEntry OBJECT-TYPE
+    SYNTAX RoadsEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Entry containing information about a single road."
+    INDEX { roadId }
+    ::= { roadsTable 1 }
+
+RoadsEntry ::= SEQUENCE {
+    roadId                  Integer32,
+    roadName                DisplayString,
+    capacity                Integer32,
+    vehicleCount            Integer32,
+    trafficRate             Integer32,
+    trafficLightColor       TrafficLightColorType,
+    colorShiftInterval      Integer32,
+    greenDuration           Integer32,
+    redDuration             Integer32
+}
+
+roadId OBJECT-TYPE
+    SYNTAX Integer32 (1..30)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "The unique identifier of the road."
+    ::= { roadsEntry 1 }
+
+roadName OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..30))
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Name of the road."
+    ::= { roadsEntry 2 }
+
+capacity OBJECT-TYPE
+    SYNTAX Integer32 (0..100)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Maximum number of vehicles that can be on this road
+                 at any given time."
+    ::= { roadsEntry 3 }
+
+vehicleCount OBJECT-TYPE
+    SYNTAX Integer32 (0..100)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Current number of vehicles on this road (scalar counter)."
+    ::= { roadsEntry 4 }
+
+trafficRate OBJECT-TYPE
+    SYNTAX Integer32 (0..100)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "External traffic generation rate for this road."
+    ::= { roadsEntry 5 }
+
+trafficLightColor OBJECT-TYPE
+    SYNTAX TrafficLightColorType
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Current color of the traffic light at the end of this road."
+    ::= { roadsEntry 6 }
+
+colorShiftInterval OBJECT-TYPE
+    SYNTAX Integer32 (0..3600)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Time remaining until the traffic light changes color."
+    ::= { roadsEntry 7 }
+
+greenDuration OBJECT-TYPE
+    SYNTAX Integer32 (1..3600)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Configured duration of the green light for this road
+                 in seconds."
+    ::= { roadsEntry 8 }
+
+redDuration OBJECT-TYPE
+    SYNTAX Integer32 (1..3600)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Configured duration of the red light for this road
+                 in seconds."
+    ::= { roadsEntry 9 }
+
+
+-- ==========================================================
+-- ROAD CONNECTIONS TABLE (Join Table)
+-- ==========================================================
+
+roadConnectionsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF RoadConnectionsEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Table describing the connections between roads."
+    ::= { trafficTables 2 }
+
+roadConnectionsEntry OBJECT-TYPE
+    SYNTAX RoadConnectionsEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "An entry describing a connection between a origin road and
+                 a destination road."
+    INDEX { connectionId }
+    ::= { roadConnectionsTable 1 }
+
+RoadConnectionsEntry ::= SEQUENCE {
+    connectionId                Integer32,
+    originRoadId                Integer32,
+    destinationRoadId           Integer32,
+    trafficDistributionRate     Integer32
+}
+
+connectionId OBJECT-TYPE
+    SYNTAX Integer32 (1..1000)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Unique identifier of the roads connection (primary key)."
+    ::= { roadConnectionsEntry 1 }
+
+originRoadId OBJECT-TYPE
+    SYNTAX Integer32 (1..100)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "The identifier of the origin road."
+    ::= { roadConnectionsEntry 2 }
+
+destinationRoadId OBJECT-TYPE
+    SYNTAX Integer32 (1..100)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "The identifier of the origin road."
+    ::= { roadConnectionsEntry 3 }
+
+trafficDistributionRate OBJECT-TYPE
+    SYNTAX Integer32 (0..100)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Rate at which vehicles flow from the origin road to the
+                 destination road when the origin road's traffic light is GREEN."
+    ::= { roadConnectionsEntry 4 }
+
+
+-- ==========================================================
+-- CONFORMANCE 
+-- ==========================================================
+
+trafficControlGroups OBJECT IDENTIFIER
+    ::= { trafficControlConformance 1 }
+
+trafficControlCompliances OBJECT IDENTIFIER
+    ::= { trafficControlConformance 2 }
+
+trafficControlScalarGroup OBJECT-GROUP
+    OBJECTS {
+        simulationStepTime,
+        defaultCrossTrafficRate,
+        systemStatus,
+        simElapsedTime,
+        totalVehiclesEntered,
+        totalVehiclesExited,
+        currentVehiclesInSystem
+    }
+    STATUS current
+    DESCRIPTION "Scalar objects for traffic control system configuration,
+                 monitoring, and statistics."
+    ::= { trafficControlGroups 1 }
+
+trafficControlRoadsGroup OBJECT-GROUP
+    OBJECTS {
+        roadName,
+        capacity,
+        vehicleCount,
+        trafficRate,
+        trafficLightColor,
+        colorShiftInterval,
+        greenDuration,
+        redDuration
+    }
+    STATUS current
+    DESCRIPTION "Objects for road configuration and state monitoring."
+    ::= { trafficControlGroups 2 }
+
+trafficControlConnectionsGroup OBJECT-GROUP
+    OBJECTS {
+        originRoadId,
+        destinationRoadId,
+        trafficDistributionRate
+    }
+    STATUS current
+    DESCRIPTION "Objects for road connection and traffic distribution."
+    ::= { trafficControlGroups 3 }
+
+trafficControlCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION "The compliance statement for the Traffic Control MIB."
+    MODULE
+        MANDATORY-GROUPS {
+            trafficControlScalarGroup,
+            trafficControlRoadsGroup,
+            trafficControlConnectionsGroup
+        }
+    ::= { trafficControlCompliances 1 }
+
+END
