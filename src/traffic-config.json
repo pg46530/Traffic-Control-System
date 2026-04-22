@@ -1,0 +1,62 @@
+{
+  "simulation": {
+    "stepTime": 5,
+    "maxDuration": 6000
+  },
+  "roads": [
+    { "roadId": 1, "roadName": "R1", "type": "source", "capacity": 100, "trafficRate": 20, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 2, "roadName": "R2", "type": "sink", "capacity": 100, "trafficRate": 15, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 3, "roadName": "R3", "type": "source", "capacity": 100, "trafficRate": 25, "greenDuration": 35, "redDuration": 25 },
+    { "roadId": 4, "roadName": "R4", "type": "normal", "capacity": 100, "trafficRate": 15, "greenDuration": 25, "redDuration": 35 },
+    { "roadId": 5, "roadName": "R5", "type": "source", "capacity": 100, "trafficRate": 20, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 6, "roadName": "R6", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 60, "redDuration": 0 },
+    { "roadId": 7, "roadName": "R7", "type": "source", "capacity": 100, "trafficRate": 0, "greenDuration": 60, "redDuration": 0 },
+    { "roadId": 8, "roadName": "R8", "type": "sink", "capacity": 100, "trafficRate": 0, "greenDuration": 60, "redDuration": 0 },
+    { "roadId": 9, "roadName": "R9", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 60, "redDuration": 0 },
+    
+    { "roadId": 10, "roadName": "R10", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 11, "roadName": "R11", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 12, "roadName": "R12", "type": "sink", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 13, "roadName": "R13", "type": "source", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 14, "roadName": "R14", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 15, "roadName": "R15", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 16, "roadName": "R16", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 17, "roadName": "R17", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 18, "roadName": "R18", "type": "normal", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 },
+    { "roadId": 19, "roadName": "R19", "type": "sink", "capacity": 100, "trafficRate": 0, "greenDuration": 30, "redDuration": 30 }
+  ],
+  "connections": [
+    { "connectionId": 1, "originRoadId": 1, "destinationRoadId": 2, "trafficDistributionRate": 10 },
+    { "connectionId": 2, "originRoadId": 1, "destinationRoadId": 4, "trafficDistributionRate": 5 },
+    { "connectionId": 3, "originRoadId": 3, "destinationRoadId": 4, "trafficDistributionRate": 5 },
+    { "connectionId": 4, "originRoadId": 3, "destinationRoadId": 19, "trafficDistributionRate": 5 },
+    { "connectionId": 5, "originRoadId": 4, "destinationRoadId": 6, "trafficDistributionRate": 10 },
+    { "connectionId": 6, "originRoadId": 4, "destinationRoadId": 15, "trafficDistributionRate": 10 },
+    { "connectionId": 7, "originRoadId": 5, "destinationRoadId": 6, "trafficDistributionRate": 3 },
+    { "connectionId": 8, "originRoadId": 5, "destinationRoadId": 15, "trafficDistributionRate": 3 },
+    { "connectionId": 9, "originRoadId": 5, "destinationRoadId": 18, "trafficDistributionRate": 3 },
+    { "connectionId": 10, "originRoadId": 6, "destinationRoadId": 8, "trafficDistributionRate": 2 },
+    { "connectionId": 11, "originRoadId": 6, "destinationRoadId": 9, "trafficDistributionRate": 5 },
+    { "connectionId": 12, "originRoadId": 7, "destinationRoadId": 8, "trafficDistributionRate": 5 },
+    
+    { "connectionId": 13, "originRoadId": 7, "destinationRoadId": 9, "trafficDistributionRate": 10 },
+    { "connectionId": 14, "originRoadId": 7, "destinationRoadId": 17, "trafficDistributionRate": 10 },
+    { "connectionId": 15, "originRoadId": 9, "destinationRoadId": 11, "trafficDistributionRate": 10 },
+    { "connectionId": 16, "originRoadId": 10, "destinationRoadId": 17, "trafficDistributionRate": 5 },
+    { "connectionId": 17, "originRoadId": 10, "destinationRoadId": 8, "trafficDistributionRate": 8 },
+    { "connectionId": 18, "originRoadId": 11, "destinationRoadId": 12, "trafficDistributionRate": 10 },
+    { "connectionId": 19, "originRoadId": 11, "destinationRoadId": 14, "trafficDistributionRate": 4 },
+    { "connectionId": 20, "originRoadId": 13, "destinationRoadId": 14, "trafficDistributionRate": 5 },
+    { "connectionId": 21, "originRoadId": 13, "destinationRoadId": 16, "trafficDistributionRate": 10 },
+    { "connectionId": 22, "originRoadId": 13, "destinationRoadId": 12, "trafficDistributionRate": 5 },
+    
+    { "connectionId": 23, "originRoadId": 14, "destinationRoadId": 18, "trafficDistributionRate": 5 },
+    { "connectionId": 24, "originRoadId": 14, "destinationRoadId": 6, "trafficDistributionRate": 5 },
+    { "connectionId": 25, "originRoadId": 15, "destinationRoadId": 12, "trafficDistributionRate": 6 },
+    { "connectionId": 26, "originRoadId": 15, "destinationRoadId": 16, "trafficDistributionRate": 6 },
+    { "connectionId": 27, "originRoadId": 16, "destinationRoadId": 10, "trafficDistributionRate": 6 },
+    { "connectionId": 28, "originRoadId": 17, "destinationRoadId": 18, "trafficDistributionRate": 6 },
+    { "connectionId": 29, "originRoadId": 17, "destinationRoadId": 15, "trafficDistributionRate": 4 },
+    { "connectionId": 30, "originRoadId": 18, "destinationRoadId": 19, "trafficDistributionRate": 4 },
+    { "connectionId": 31, "originRoadId": 18, "destinationRoadId": 2, "trafficDistributionRate": 4 }  ]
+}
