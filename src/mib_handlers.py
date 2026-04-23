@@ -19,6 +19,26 @@ def get_dynamic_scalar_class(mib_scalar_instance_class):
             
             # Return the OID with the new cloned value
             return name, self.syntax.clone(new_val)
+
+        def writeTest(self, varBind, **context):
+            # Test if the value is acceptable (syntax is already validated by pysnmp)
+            pass
+
+        def writeCommit(self, varBind, **context):
+            # Commit the new value to the agent's memory
+            name, val = varBind
+            
+            # For trafficLightColor enum the integer conversion is required,
+            if hasattr(val, 'clone'): # MibScalar/Column syntax types
+                 py_val = int(val) if val.__class__.__name__ == 'Integer32' else val.prettyPrint()
+                 try:
+                     py_val = int(py_val)
+                 except ValueError:
+                     pass
+            else:
+                 py_val = int(val)
+            
+            setattr(self.agent, self.attr_name, py_val)
             
     return DynamicScalar
 
@@ -49,6 +69,27 @@ def get_dynamic_column_class(mib_table_column_class):
                 return name, self.syntax.clone(new_val)
             else:
                 # Standard PySNMP response if row is completely missing
+                from pysnmp.smi.error import NoSuchInstanceError
+                raise NoSuchInstanceError(name=name)
+
+        def writeTest(self, varBind, **context):
+            pass
+
+        def writeCommit(self, varBind, **context):
+            name, val = varBind
+            row_id = int(name[-1])
+
+            table_dict = getattr(self.agent, self.table_name)
+
+            if row_id in table_dict:
+                try:
+                    py_val = int(val)
+                except Exception:
+                    py_val = str(val)
+                
+                # saves the new value back to the agent's dictionary
+                table_dict[row_id][self.attr_name] = py_val
+            else:
                 from pysnmp.smi.error import NoSuchInstanceError
                 raise NoSuchInstanceError(name=name)
 
