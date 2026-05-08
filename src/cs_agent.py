@@ -39,6 +39,7 @@ class CentralSystem:
                     road_id = road['roadId']
                     self.roads[road_id] = {
                         'roadName': road['roadName'],
+                        'type': road.get('type', 'normal'),
                         'capacity': road['capacity'],
                         'trafficRate': road['trafficRate'],
                         'greenDuration': road['greenDuration'],
@@ -148,8 +149,6 @@ class CentralSystem:
 
         table_symbols = {}
         
-        # Iterate over our dictionary to instantiate each row mapping
-        # e.g: roadsEntry instances are mapped column by column using their OID length incremented by row index (road_id)
         for road_id, data in self.roads.items():
             instId = (road_id,) # OID Index format tuple
             
@@ -170,9 +169,93 @@ class CentralSystem:
             table_symbols[f"destinationRoadId_inst_{conn_id}"] = DynamicColumn(destinationRoadId.name, instId, destinationRoadId.syntax, self, 'connections', 'destinationRoadId')
             table_symbols[f"trafficDistributionRate_inst_{conn_id}"] = DynamicColumn(trafficDistributionRate.name, instId, trafficDistributionRate.syntax, self, 'connections', 'trafficDistributionRate')
 
-        # Perform one big export to MIB builder tree
         self.mib_builder.export_symbols('TRAFFIC-CONTROL-MIB', **table_symbols)
         print(f"Table bound successfully for {len(self.roads)} roads and {len(self.connections)} connections.")
+
+    async def simulation_loop(self):
+        # SSFR asynchronous loop
+        print("[*] Starting Simulation Loop (SSFR)...")
+        while True:
+            await asyncio.sleep(self.sim_step_time)
+            
+            if self.system_status != 2:
+                continue # simultation is not running
+                
+            self.sim_elapsed_time += self.sim_step_time
+            
+            # dicitionary to save traffic moves to apply before the end of the step
+            # so cars don't move multiple times in a single step
+            pending_moves = {road_id: 0 for road_id in self.roads}
+
+            # generate traffic and shift lights for each road
+            for road_id, road in self.roads.items():
+                # only source roads generate traffic
+                if road['type'] == 'source' and road['trafficRate'] > 0:
+                    cars_generated = (road['trafficRate'] * self.sim_step_time) / 60.0
+                    
+                    road['vehicleCount'] += int(cars_generated)
+                    if road['vehicleCount'] > road['capacity']:
+                        road['vehicleCount'] = road['capacity']
+
+                road['colorShiftInterval'] -= self.sim_step_time
+                if road['colorShiftInterval'] <= 0:
+                    if road['trafficLightColor'] == 2: # Green -> Red
+                        road['trafficLightColor'] = 1
+                        road['colorShiftInterval'] = road['redDuration']
+                    else: # Red -> Green
+                        road['trafficLightColor'] = 2
+                        road['colorShiftInterval'] = road['greenDuration']
+
+            # move traffic based on connections and traffic light status
+            for road_id, road in self.roads.items():
+                # Only move cars if the traffic light is Green (2) and there are carts
+                if road['trafficLightColor'] == 2 and road['vehicleCount'] > 0:
+                    
+                    # Find all connections where this road is the origin
+                    out_conns = [c for c in self.connections.values() if c['originRoadId'] == road_id]
+                    
+                    # case it is a sink road, cars are evactuaded based on traffic rate
+                    if not out_conns:
+                        evacuated = int((road['trafficRate'] * self.sim_step_time) / 60.0)
+                        # prevent deadlock by allowing at least 1 car to evacuate
+                        if evacuated == 0 and road['trafficRate'] > 0 and road['vehicleCount'] > 0: evacuated = 1 
+                        road['vehicleCount'] -= evacuated
+                        if road['vehicleCount'] < 0: road['vehicleCount'] = 0
+                    else:
+                        # normal road distributes traffic for destinations based on connection rates and capacity
+                        total_rate = sum(c['trafficDistributionRate'] for c in out_conns)
+                        if total_rate > 0:
+                            moves = []
+                            for conn in out_conns:
+                                wanted = (conn['trafficDistributionRate'] * self.sim_step_time) / 60.0
+                                moves.append({'conn': conn, 'wanted': wanted})
+                            
+                            total_wanted = sum(m['wanted'] for m in moves)
+                            scale = 1.0
+                            if total_wanted > road['vehicleCount'] and total_wanted > 0:
+                                scale = road['vehicleCount'] / total_wanted
+                                
+                            for m in moves:
+                                conn = m['conn']
+                                dest_road_id = conn['destinationRoadId']
+                                dest_road = self.roads[dest_road_id]
+                                
+                                cars_to_move = int(m['wanted'] * scale)
+                                if cars_to_move == 0 and m['wanted'] > 0 and road['vehicleCount'] > 0:
+                                    cars_to_move = 1
+                                
+                                # Check bounds
+                                cars_to_move = min(cars_to_move, road['vehicleCount'])
+                                available_space = dest_road['capacity'] - (dest_road['vehicleCount'] + pending_moves[dest_road_id])
+                                cars_to_move = min(cars_to_move, available_space)
+                                
+                                if cars_to_move > 0:
+                                    road['vehicleCount'] -= cars_to_move
+                                    pending_moves[dest_road_id] += cars_to_move
+
+            #  apply pending moves to destinations
+            for road_id, incoming_cars in pending_moves.items():
+                self.roads[road_id]['vehicleCount'] += incoming_cars
 
     def run(self):
         # Method to start the SNMP agent and keep it running
@@ -182,9 +265,13 @@ class CentralSystem:
         
         try:
             loop = asyncio.get_event_loop()
+            
+            # Add the simulation loop to the asyncio execution
+            loop.create_task(self.simulation_loop())
+            
             loop.run_forever()
         except KeyboardInterrupt:
-            print("\n Shutting down Central System.")
+            print("\nShutting down Central System.")
 
 if __name__ == "__main__":
     sc = CentralSystem("traffic-config.json")
