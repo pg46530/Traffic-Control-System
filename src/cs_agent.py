@@ -2,6 +2,7 @@ import os
 import json
 import time
 import asyncio
+import argparse
 from pysnmp.entity import engine, config
 from pysnmp.entity.rfc3413 import cmdrsp, context
 from pysnmp.smi import builder, instrum, exval
@@ -17,6 +18,12 @@ class CentralSystem:
         self.max_duration = 0
         self.sim_elapsed_time = 0
         self.system_status = 1  # 1: stopped, 2: running, 3: paused
+        self.total_vehicles_entered = 0
+        self.total_vehicles_exited = 0
+        self.current_vehicles_in_system = 0
+        self.default_cross_traffic_rate = 0
+        self.sd_interval = 60   # how often (seconds) the SD recalculates light timings
+        self.sd_elapsed = 0    # internal counter tracking time since last SD run
         
         self.roads = {}
         self.connections = {}
@@ -33,6 +40,8 @@ class CentralSystem:
                 # Instantiate scalars
                 self.sim_step_time = data['simulation']['stepTime']
                 self.max_duration = data['simulation']['maxDuration']
+                self.default_cross_traffic_rate = data['simulation'].get('defaultCrossTrafficRate', 0)
+                self.sd_interval = data['simulation'].get('sdInterval', 60)
                 
                 # Instantiate roadsTable
                 for road in data['roads']:
@@ -62,6 +71,41 @@ class CentralSystem:
             
         except Exception as e:
             print(f"Error loading configuration: {e}")
+
+    def decision_step(self):
+        # SD: recalculate green/red durations proportionally to each road's occupancy
+        # The total cycle time (greenDuration + redDuration) is preserved per road
+        # New times take effect on the next cycle transition, not immediately
+        MIN_GREEN = 10  # minimum green seconds guaranteed to every road
+        MIN_RED = 10    # minimum red seconds guaranteed to every road
+
+        for road_id, road in self.roads.items():
+            total_cycle = road['greenDuration'] + road['redDuration']
+
+            if total_cycle < MIN_GREEN + MIN_RED:
+                total_cycle = MIN_GREEN + MIN_RED
+
+            occupancy = road['vehicleCount'] / road['capacity'] if road['capacity'] > 0 else 0.0
+            occupancy = max(0.0, min(1.0, occupancy))
+
+            new_green = int(MIN_GREEN + occupancy * (total_cycle - MIN_GREEN - MIN_RED))
+            new_green = max(MIN_GREEN, min(total_cycle - MIN_RED, new_green))
+            new_red = total_cycle - new_green
+
+            road['greenDuration'] = new_green
+            road['redDuration'] = new_red
+
+    def on_system_status_changed(self, new_status):
+        # Called when systemStatus is changed via SNMP SET
+        if new_status == 1:  # stopped - reset all simulation stats
+            self.sim_elapsed_time = 0
+            self.total_vehicles_entered = 0
+            self.total_vehicles_exited = 0
+            self.current_vehicles_in_system = 0
+            self.sd_elapsed = 0
+            for road in self.roads.values():
+                road['vehicleCount'] = 0
+            print("[*] Simulation stats reset to initial state.")
 
     def setup_snmp(self):
         # Configure SNMP Engine, Transports, Security, Context, and load MIBs
@@ -109,11 +153,12 @@ class CentralSystem:
         MibScalarInstance, = self.mib_builder.import_symbols('SNMPv2-SMI', 'MibScalarInstance')
         
         # Import scalar nodes from MIB
-        simulationStepTime, systemStatus, simElapsedTime = self.mib_builder.import_symbols(
-            'TRAFFIC-CONTROL-MIB', 
-            'simulationStepTime', 
-            'systemStatus', 
-            'simElapsedTime'
+        simulationStepTime, systemStatus, simElapsedTime, defaultCrossTrafficRate, \
+        totalVehiclesEntered, totalVehiclesExited, currentVehiclesInSystem = self.mib_builder.import_symbols(
+            'TRAFFIC-CONTROL-MIB',
+            'simulationStepTime', 'systemStatus', 'simElapsedTime',
+            'defaultCrossTrafficRate', 'totalVehiclesEntered', 'totalVehiclesExited',
+            'currentVehiclesInSystem'
         )
 
         # Get the dynamic scalar class injected with MibScalarInstance base
@@ -123,8 +168,12 @@ class CentralSystem:
         self.mib_builder.export_symbols(
             'TRAFFIC-CONTROL-MIB',
             simulationStepTime_inst=DynamicScalar(simulationStepTime.name, (0,), simulationStepTime.syntax, self, 'sim_step_time'),
-            systemStatus_inst=DynamicScalar(systemStatus.name, (0,), systemStatus.syntax, self, 'system_status'),
-            simElapsedTime_inst=DynamicScalar(simElapsedTime.name, (0,), simElapsedTime.syntax, self, 'sim_elapsed_time')
+            systemStatus_inst=DynamicScalar(systemStatus.name, (0,), systemStatus.syntax, self, 'system_status', self.on_system_status_changed),
+            simElapsedTime_inst=DynamicScalar(simElapsedTime.name, (0,), simElapsedTime.syntax, self, 'sim_elapsed_time'),
+            defaultCrossTrafficRate_inst=DynamicScalar(defaultCrossTrafficRate.name, (0,), defaultCrossTrafficRate.syntax, self, 'default_cross_traffic_rate'),
+            totalVehiclesEntered_inst=DynamicScalar(totalVehiclesEntered.name, (0,), totalVehiclesEntered.syntax, self, 'total_vehicles_entered'),
+            totalVehiclesExited_inst=DynamicScalar(totalVehiclesExited.name, (0,), totalVehiclesExited.syntax, self, 'total_vehicles_exited'),
+            currentVehiclesInSystem_inst=DynamicScalar(currentVehiclesInSystem.name, (0,), currentVehiclesInSystem.syntax, self, 'current_vehicles_in_system')
         )
         print("Scalar bind successfully executed")
 
@@ -179,23 +228,35 @@ class CentralSystem:
             await asyncio.sleep(self.sim_step_time)
             
             if self.system_status != 2:
-                continue # simultation is not running
+                continue # simulation is not running
                 
             self.sim_elapsed_time += self.sim_step_time
+
+            # Check if max simulation duration was reached
+            if self.max_duration > 0 and self.sim_elapsed_time >= self.max_duration:
+                print(f"[*] Simulation ended: max duration of {self.max_duration}s reached.")
+                self.system_status = 1
+                self.sim_elapsed_time = 0
+                self.total_vehicles_entered = 0
+                self.total_vehicles_exited = 0
+                self.current_vehicles_in_system = 0
+                continue
             
-            # dicitionary to save traffic moves to apply before the end of the step
+            # dictionary to save traffic moves to apply before the end of the step
             # so cars don't move multiple times in a single step
             pending_moves = {road_id: 0 for road_id in self.roads}
 
-            # generate traffic and shift lights for each road
             for road_id, road in self.roads.items():
-                # only source roads generate traffic
+                # Source roads inject vehicles at their trafficRate (veic/min)
                 if road['type'] == 'source' and road['trafficRate'] > 0:
-                    cars_generated = (road['trafficRate'] * self.sim_step_time) / 60.0
-                    
-                    road['vehicleCount'] += int(cars_generated)
-                    if road['vehicleCount'] > road['capacity']:
-                        road['vehicleCount'] = road['capacity']
+                    cars_generated = int((road['trafficRate'] * self.sim_step_time) / 60.0)
+                    if cars_generated == 0:
+                        cars_generated = 1  # guarantee at least 1 per step when rate > 0
+                    space_available = road['capacity'] - road['vehicleCount']
+                    cars_added = min(cars_generated, space_available)
+                    if cars_added > 0:
+                        road['vehicleCount'] += cars_added
+                        self.total_vehicles_entered += cars_added
 
                 road['colorShiftInterval'] -= self.sim_step_time
                 if road['colorShiftInterval'] <= 0:
@@ -206,56 +267,82 @@ class CentralSystem:
                         road['trafficLightColor'] = 2
                         road['colorShiftInterval'] = road['greenDuration']
 
-            # move traffic based on connections and traffic light status
             for road_id, road in self.roads.items():
                 # Only move cars if the traffic light is Green (2) and there are carts
-                if road['trafficLightColor'] == 2 and road['vehicleCount'] > 0:
-                    
-                    # Find all connections where this road is the origin
-                    out_conns = [c for c in self.connections.values() if c['originRoadId'] == road_id]
-                    
-                    # case it is a sink road, cars are evactuaded based on traffic rate
-                    if not out_conns:
-                        evacuated = int((road['trafficRate'] * self.sim_step_time) / 60.0)
-                        # prevent deadlock by allowing at least 1 car to evacuate
-                        if evacuated == 0 and road['trafficRate'] > 0 and road['vehicleCount'] > 0: evacuated = 1 
-                        road['vehicleCount'] -= evacuated
-                        if road['vehicleCount'] < 0: road['vehicleCount'] = 0
-                    else:
-                        # normal road distributes traffic for destinations based on connection rates and capacity
-                        total_rate = sum(c['trafficDistributionRate'] for c in out_conns)
-                        if total_rate > 0:
-                            moves = []
-                            for conn in out_conns:
-                                wanted = (conn['trafficDistributionRate'] * self.sim_step_time) / 60.0
-                                moves.append({'conn': conn, 'wanted': wanted})
-                            
-                            total_wanted = sum(m['wanted'] for m in moves)
-                            scale = 1.0
-                            if total_wanted > road['vehicleCount'] and total_wanted > 0:
-                                scale = road['vehicleCount'] / total_wanted
-                                
-                            for m in moves:
-                                conn = m['conn']
-                                dest_road_id = conn['destinationRoadId']
-                                dest_road = self.roads[dest_road_id]
-                                
-                                cars_to_move = int(m['wanted'] * scale)
-                                if cars_to_move == 0 and m['wanted'] > 0 and road['vehicleCount'] > 0:
-                                    cars_to_move = 1
-                                
-                                # Check bounds
-                                cars_to_move = min(cars_to_move, road['vehicleCount'])
-                                available_space = dest_road['capacity'] - (dest_road['vehicleCount'] + pending_moves[dest_road_id])
-                                cars_to_move = min(cars_to_move, available_space)
-                                
-                                if cars_to_move > 0:
-                                    road['vehicleCount'] -= cars_to_move
-                                    pending_moves[dest_road_id] += cars_to_move
+                if road['trafficLightColor'] != 2 or road['vehicleCount'] <= 0:
+                    continue
+
+                out_conns = [c for c in self.connections.values() if c['originRoadId'] == road_id]
+
+                if not out_conns:
+                    # Sink road: evacuate at its own trafficRate (veic/min)
+                    evacuated = int((road['trafficRate'] * self.sim_step_time) / 60.0)
+                    if evacuated == 0 and road['trafficRate'] > 0:
+                        evacuated = 1
+                    evacuated = min(evacuated, road['vehicleCount'])
+                    road['vehicleCount'] -= evacuated
+                    self.total_vehicles_exited += evacuated
+                else:
+                    # How many cars can cross the traffic light per step
+                    cars_per_step = (self.default_cross_traffic_rate * self.sim_step_time) / 60.0
+                    # Guarantee at least 1 car crosses per step when rate > 0
+                    if cars_per_step < 1.0 and self.default_cross_traffic_rate > 0:
+                        cars_per_step = 1.0
+
+                    # Sum of all distribution percentages for this road out connections
+                    total_distribution_pct = sum(c['trafficDistributionRate'] for c in out_conns)
+                    if total_distribution_pct <= 0:
+                        continue
+
+                    # Total cars to move this step: capped by how many are actually on the road
+                    total_cars_to_cross = min(cars_per_step, road['vehicleCount'])
+                    total_cars_to_cross = max(1, int(round(total_cars_to_cross))) if road['vehicleCount'] > 0 else 0
+                    if total_cars_to_cross == 0:
+                        continue
+
+                    # Distribute total_cars_to_cross to distribute proportionally fo each connection
+                    # Uses the Largest-Remainder Method to avoid rounding errors
+                    # for example with 1 car and two connections 60%/40%, one connection gets 1 and the other 0
+                    exact_per_conn = [total_cars_to_cross * c['trafficDistributionRate'] / total_distribution_pct
+                                      for c in out_conns]
+                    allocated = [int(e) for e in exact_per_conn]
+                    leftover = total_cars_to_cross - sum(allocated)
+                    # the leftover cars go to the largest percentage connection
+                    priority_order = sorted(range(len(exact_per_conn)),
+                                            key=lambda i: exact_per_conn[i] - allocated[i],
+                                            reverse=True)
+                    for i in range(leftover):
+                        allocated[priority_order[i]] += 1
+
+                    for i, conn in enumerate(out_conns):
+                        cars_to_move = allocated[i]
+                        if cars_to_move <= 0:
+                            continue
+                        dest_road_id = conn['destinationRoadId']
+                        dest_road    = self.roads[dest_road_id]
+
+                        # avoid moving more cars than the ines present on the road
+                        cars_to_move = min(cars_to_move, road['vehicleCount'])
+                        # pending_moves accounts for cars already reserved by other connections this step
+                        free_space_at_dest = (dest_road['capacity'] - dest_road['vehicleCount'] - pending_moves[dest_road_id])
+                        cars_to_move = min(cars_to_move, max(0, free_space_at_dest))
+
+                        if cars_to_move > 0:
+                            road['vehicleCount']        -= cars_to_move
+                            pending_moves[dest_road_id] += cars_to_move
 
             #  apply pending moves to destinations
             for road_id, incoming_cars in pending_moves.items():
                 self.roads[road_id]['vehicleCount'] += incoming_cars
+
+            # Update system vehicle count
+            self.current_vehicles_in_system = sum(r['vehicleCount'] for r in self.roads.values())
+
+            # recalculate traffic light durations every sd_interval seconds
+            self.sd_elapsed += self.sim_step_time
+            if self.sd_elapsed >= self.sd_interval:
+                self.sd_elapsed = 0
+                self.decision_step()
 
     def run(self):
         # Method to start the SNMP agent and keep it running
@@ -274,6 +361,20 @@ class CentralSystem:
             print("\nShutting down Central System.")
 
 if __name__ == "__main__":
-    sc = CentralSystem("traffic-config.json")
-    sc.run()
+    parser = argparse.ArgumentParser(description='Traffic Control Central System')
+    parser.add_argument(
+        '--config',
+        default='traffic-config.json',
+        help='Config filename inside src/traffic-configs/ (default: traffic-config.json)'
+    )
+    args = parser.parse_args()
 
+    configs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'traffic-configs')
+    config_path = os.path.join(configs_dir, args.config)
+
+    if not os.path.isfile(config_path):
+        print(f"[!] Config file not found: {config_path}")
+        raise SystemExit(1)
+
+    sc = CentralSystem(config_path)
+    sc.run()

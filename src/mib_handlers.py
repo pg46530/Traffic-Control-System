@@ -4,12 +4,13 @@ def get_dynamic_scalar_class(mib_scalar_instance_class):
     the dynamically loaded MibScalarInstance.
     """
     class DynamicScalar(mib_scalar_instance_class):
-        def __init__(self, name, instId, syntax, agent, attr_name):
+        def __init__(self, name, instId, syntax, agent, attr_name, on_write_callback=None):
             # Initialize the PySNMP MibScalarInstance parent class
             super().__init__(name, instId, syntax)
             # Store the reference to the main agent and the target attribute
             self.agent = agent
             self.attr_name = attr_name
+            self.on_write_callback = on_write_callback
 
         def readGet(self, varBind, **context):
             name, val = varBind
@@ -39,6 +40,9 @@ def get_dynamic_scalar_class(mib_scalar_instance_class):
                  py_val = int(val)
             
             setattr(self.agent, self.attr_name, py_val)
+
+            if self.on_write_callback:
+                self.on_write_callback(py_val)
             
     return DynamicScalar
 
