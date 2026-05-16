@@ -72,7 +72,7 @@ defaultCrossTrafficRate OBJECT-TYPE
     MAX-ACCESS read-write
     STATUS current
     DESCRIPTION "Default traffic crossing rate at traffic lights in
-                 vehicles per minute. Used as baseline for road configuration."
+                 vehicles per second. Used as baseline for road configuration."
     ::= { simConfig 2 }
 
 systemStatus OBJECT-TYPE

@@ -324,12 +324,12 @@ def do_poll(state: AppState, host, port, community):
                 vc  = road.get('vehicleCount', 0)
                 if tr <= 0 or vc >= cap:
                     continue
-                expected = int(tr * step / 60)
+                expected = int(tr * step)
                 if expected == 0 and tr > 0:
                     expected = 1   # at least 1 when rate is defined
                 rname = road['roadName']
                 new_events.append(
-                    f'[{ts}] [GENERATE RTG={tr:>2}/min] ──▶ {rname:<5}  ~{expected} veh'
+                    f'[{ts}] [GENERATE RTG={tr:>2}/s] ──▶ {rname:<5}  ~{expected} veh'
                 )
 
         # ── 2. MOVEMENTS (inferred from destination) ─────────────────────
@@ -391,7 +391,7 @@ HELP_FULL = """\
   start                   – Start simulation    (systemStatus=2)
   stop                    – Stop simulation     (systemStatus=1)
   pause                   – Pause simulation    (systemStatus=3)
-  set rtg <id> <val>      – Change RTG of road <id>  [0-100 veh/min]
+  set rtg <id> <val>      – Change RTG of road <id>  [0-100 veh/s]
   set green <id> <val>    – Override green duration of road <id>  [>=10 s]
   set red   <id> <val>    – Override red duration of road <id>    [>=10 s]
   set capacity <id> <val> – Change capacity of road <id>          [1-1000]
@@ -454,10 +454,10 @@ def handle_cmd(raw: str, state: AppState, host, port, community):
 
         if sub == 'rtg':
             if not (0 <= val <= 100):
-                return 'RTG must be between 0 and 100 (veh/min).', False
+                return 'RTG must be between 0 and 100 (veh/s).', False
             oid  = f'{_ROAD_BASE}.{COL_TRAFFIC_RATE}.{rid}'
             attr = 'trafficRate'
-            desc = f'RTG of road {rid} set to {val} veh/min.'
+            desc = f'RTG of road {rid} set to {val} veh/s.'
         elif sub == 'green':
             if val < 10:
                 return 'Green duration must be >= 10 s.', False

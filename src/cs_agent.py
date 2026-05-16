@@ -247,9 +247,9 @@ class CentralSystem:
             pending_moves = {road_id: 0 for road_id in self.roads}
 
             for road_id, road in self.roads.items():
-                # Source roads inject vehicles at their trafficRate (veic/min)
+                # Source roads inject vehicles at their trafficRate (veic/s)
                 if road['type'] == 'source' and road['trafficRate'] > 0:
-                    cars_generated = int((road['trafficRate'] * self.sim_step_time) / 60.0)
+                    cars_generated = int(road['trafficRate'] * self.sim_step_time)
                     if cars_generated == 0:
                         cars_generated = 1  # guarantee at least 1 per step when rate > 0
                     space_available = road['capacity'] - road['vehicleCount']
@@ -275,8 +275,8 @@ class CentralSystem:
                 out_conns = [c for c in self.connections.values() if c['originRoadId'] == road_id]
 
                 if not out_conns:
-                    # Sink road: evacuate at its own trafficRate (veic/min)
-                    evacuated = int((road['trafficRate'] * self.sim_step_time) / 60.0)
+                    # Sink road: evacuate at its own trafficRate (veic/s)
+                    evacuated = int(road['trafficRate'] * self.sim_step_time)
                     if evacuated == 0 and road['trafficRate'] > 0:
                         evacuated = 1
                     evacuated = min(evacuated, road['vehicleCount'])
@@ -284,7 +284,7 @@ class CentralSystem:
                     self.total_vehicles_exited += evacuated
                 else:
                     # How many cars can cross the traffic light per step
-                    cars_per_step = (self.default_cross_traffic_rate * self.sim_step_time) / 60.0
+                    cars_per_step = self.default_cross_traffic_rate * self.sim_step_time
                     # Guarantee at least 1 car crosses per step when rate > 0
                     if cars_per_step < 1.0 and self.default_cross_traffic_rate > 0:
                         cars_per_step = 1.0
